@@ -1,0 +1,1 @@
+MSG(GETPAR("1 SW"))
