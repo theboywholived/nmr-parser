@@ -45,7 +45,7 @@ def split_arraystring(s):
 
 
 # print(sp_str("<> <> <garp> <garp> <mlev> <mlev> <mlev> <mlev> <mlev>"))
-def parse_value_from_end(s):
+def get_number_from_end(s):
     value = ""
     name = ""
     for i in reversed(s):
@@ -71,7 +71,8 @@ def get_value(each_param):
         return str(
             split_arraystring(arraystring)[int(index) - 1])  # Typecasting to Float is needed as each entry is a String
     elif each_param[-1].isdigit():
-        name, value = parse_value_from_end(each_param)
+        name, value = get_number_from_end(each_param)
+        name, value = get_number_from_end(each_param)
         if name == 'd' or name == 'in' or name == 'PLW' or name == 'PLdB':
             return "None"
         # MSG(name + " " + value)
