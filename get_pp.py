@@ -88,7 +88,7 @@ def get_parameters(py_working_dir, pp_filename, pp_file_paths):
     _raw_pulse_parameters = {}
     _parsed_pulse_parameters = {}
     _include_filenames = []
-
+    _prosol_filenames = []
     for fp in pp_file_paths:
         cwd = ((_pp_working_dir + '/') if fp[0] != '/' else '') + fp + '/'
         # MSG(cwd)
@@ -104,7 +104,10 @@ def get_parameters(py_working_dir, pp_filename, pp_file_paths):
                             each_include_filename = (str(i).split('<')[1]).split('>')[0]
                             _include_filenames.append(each_include_filename)
                             MSG(each_include_filename)
-
+                        elif (str(i).startswith("prosol")):
+                            each_include_filename = (str(i).split('<')[1]).split('>')[0]
+                            _prosol_filenames.append(each_include_filename)
+                            MSG(each_include_filename)
             break
     if len(_pp_orig) == 0:
         raise FileNotFoundError("Couldn't find the Pulse Program")
@@ -119,7 +122,7 @@ def get_parameters(py_working_dir, pp_filename, pp_file_paths):
             _parsed_pulse_parameters[_key].append(get_trailing_numbers(j))
         _parsed_pulse_parameters[_key].sort()
 
-    return _pp_orig, _parsed_pulse_parameters, _include_filenames
+    return _pp_orig, _parsed_pulse_parameters, _include_filenames, _prosol_filenames
 
 
 def get_nucleus_status(dd):
@@ -299,13 +302,15 @@ def main():
     data_dir = dd[3] + '/' + dd[0] + '/' + dd[1]
 
     pp_paths, spnam_paths, cpd_paths, gp_paths = get_paths()
-    pp_original, pulse_parameters, include_filenames = get_parameters(py_working_dir, pp_filename, pp_paths)
+    pp_original, pulse_parameters, include_filenames, prosol_filenames = get_parameters(py_working_dir, pp_filename,
+                                                                                        pp_paths)
     nucleus_status = get_nucleus_status(data_dir)
     print(nucleus_status)
     print(pulse_parameters)
 
-    result_nonaxis, result_axis, spnam_filenames, gpnam_filenames, cpdprg_filenames, curr_dir_filenames = get_values(pulse_parameters,
-                                                                                                 nucleus_status)
+    result_nonaxis, result_axis, spnam_filenames, gpnam_filenames, cpdprg_filenames, curr_dir_filenames = get_values(
+        pulse_parameters,
+        nucleus_status)
     write_to_file(data_dir, "pp_modified.txt", pp_original, result_nonaxis, result_axis)
 
     zip_files(data_dir, py_working_dir, spnam_paths, spnam_filenames)
@@ -313,7 +318,7 @@ def main():
     zip_files(data_dir, py_working_dir, gp_paths, gpnam_filenames)
     zip_files(data_dir, py_working_dir, cpd_paths, cpdprg_filenames)
     zip_files(data_dir, py_working_dir, [data_dir], curr_dir_filenames)
-
+    zip_files(data_dir, py_working_dir, ['lists/prosol/pulseassign'], prosol_filenames)
 
 
 if __name__ == '__main__':
