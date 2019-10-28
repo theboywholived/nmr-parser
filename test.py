@@ -3,8 +3,9 @@
 # MSG(GETPAR('CPDPRG'))
 #
 # Data directory, i.e, where the TopSpin working dataset is located
-dd = CURDATA()
-
-# Calculating the data directory
-data_dir = dd[3] + '/' + dd[0] + '/' + dd[1]
-MSG(data_dir)
+# dd = CURDATA()
+#
+# # Calculating the data directory
+# data_dir = dd[3] + '/' + dd[0] + '/' + dd[1]
+# MSG(data_dir)
+MSG(GETPAR("VCLIST"))

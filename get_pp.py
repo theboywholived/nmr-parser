@@ -2,7 +2,7 @@ import collections
 import os
 import re
 from zipfile import ZipFile
-
+import warnings
 
 def clean_regex(parameters_list):
     # Helper Function for Cleaning Regex Output
@@ -15,12 +15,12 @@ def clean_regex(parameters_list):
 
 
 def get_trailing_numbers(s):
-    # Helper Function, Gets the number from the end of the string
+    # Helper Function, gets the number from the end of the string
     # Example input: 'sp23'
     # Example output: 23
-    m = re.search(r'\d+$', s)
+    _m = re.search(r'\d+$', s)
 
-    return int(m.group()) if m else None
+    return int(_m.group()) if _m else None
 
 
 def split_arraystring(s):
@@ -41,29 +41,20 @@ def split_arraystring(s):
     return _ret
 
 
-def get_paths():
-    # Get list of paths (in priority order) for pulse programs and shaped pulse files
+def get_paths(pattern):
+    # Get list of paths (in priority order) for pulse program and useful parameter files
     # Paths are stored in parfile-dirs.prop file located in the Python working directory
-    _pp_file_paths = []
-    _spnam_paths_all = []
-    _cpd_file_paths = []
-    _gp_file_paths = []
+    _filepaths = []
     try:
         with open('parfile-dirs.prop', 'r') as f:
             for i in f:
-                if 'PP_DIRS=' in i:
-                    _pp_file_paths += i[8:].strip().split(';')
-                elif 'SHAPE_DIRS' in i:
-                    _spnam_paths_all += i[11:].strip().split(';')
-                elif 'CPD_DIRS' in i:
-                    _cpd_file_paths += i[9:].strip().split(';')
-                elif 'GP_DIRS' in i:
-                    _gp_file_paths += i[8:].strip().split(';')
+                if pattern in i:
+                    _filepaths += i[(len(pattern) + 1):].strip().split(';')
 
     except IOError:
         raise FileNotFoundError("Couldn't Locate parfile-dirs.prop for the pulse program")
 
-    return _pp_file_paths, _spnam_paths_all, _cpd_file_paths, _gp_file_paths
+    return _filepaths
 
 
 def get_parameters(py_working_dir, pp_filename, pp_file_paths):
@@ -103,11 +94,11 @@ def get_parameters(py_working_dir, pp_filename, pp_file_paths):
                         if (str(i).startswith("#include")):
                             each_include_filename = (str(i).split('<')[1]).split('>')[0]
                             _include_filenames.append(each_include_filename)
-                            MSG(each_include_filename)
+                            # MSG(each_include_filename)
                         elif (str(i).startswith("prosol")):
                             each_include_filename = (str(i).split('<')[1]).split('>')[0]
                             _prosol_filenames.append(each_include_filename)
-                            MSG(each_include_filename)
+                            # MSG(each_include_filename)
             break
     if len(_pp_orig) == 0:
         raise FileNotFoundError("Couldn't find the Pulse Program")
@@ -127,11 +118,12 @@ def get_parameters(py_working_dir, pp_filename, pp_file_paths):
 
 def get_nucleus_status(dd):
     # Parses the 'acqus' file, returns a list with status of each possible nucleus(corresponding to the index)
+    # Takes the Data Directory Path as Input
     # Example Output: ['1H', 'off', '15N', 'off', 'off', 'off', 'off', 'off'] NUC1, NUC3 are on, others are off
     _nucleus_status_list = []
-    aqus_path = dd + '/' + 'acqus'
+    _aqus_path = dd + '/' + 'acqus'
     try:
-        with open(aqus_path) as f:
+        with open(_aqus_path) as f:
             for each_line in f:
                 if len(each_line) >= 10 and not (each_line.startswith("##$NUCLEUS")) and each_line.startswith(
                         "##$NUC"):
@@ -146,41 +138,53 @@ def get_nucleus_status(dd):
 
 
 def get_values(pulse_parameters, nucleus_status_list):
-    nonaxis_parameters = ['AQ_mod', 'DS', 'NS', 'FW', 'RG', 'DW', 'DE', 'NBL', 'DQDMODE', 'PH_ref']
-    nuc_parameters = ['NUC', 'O', 'SFO', 'BF']
-    sp_parameters = ['SPNAM', 'SPOAL', 'SPOFFS', 'SPW']
-    gp_parameters = ['GPNAM', 'GPZ']
-    cpd_parameters = ['CPDPRG']
-    axis_parameters = ['TD', 'SW', 'AQ', 'FIDRES']
-    aq_mod_map = {'0': 'qf', '1': 'qsim', '2': 'qseq', '3': 'DQD', '4': 'parallelQsim', '5': 'parallelDQD'}
-    dqdmode_map = {'0': 'add', '1': 'subtract'}
+    # Takes the list of relevant parameters and the nucleus status
+    # Uses GETPAR() to find out the values of parameters. Returns two dictionaries for each axis and non axis parameters
+    # Also Returns lists with names of the useful files
 
-    _result_nonaxis = collections.OrderedDict()
-    _result_axis = collections.OrderedDict()
+    _nonaxis_parameters = ['AQ_mod', 'DS', 'NS', 'FW', 'RG', 'DW', 'DE', 'NBL', 'DQDMODE', 'PH_ref', 'FnTYPE']
+    _nuc_parameters = ['NUC', 'O', 'SFO', 'BF']
+    _sp_parameters = ['SPNAM', 'SPOAL', 'SPOFFS', 'SPW']
+    _gp_parameters = ['GPNAM', 'GPZ']
+    _cpd_parameters = ['CPDPRG']
+    _axis_parameters = ['TD', 'SW', 'AQ', 'FIDRES']
 
-    for i in nonaxis_parameters:
+    _aq_mod_map = {'0': 'qf', '1': 'qsim', '2': 'qseq', '3': 'DQD', '4': 'parallelQsim', '5': 'parallelDQD'}
+    _dqdmode_map = {'0': 'add', '1': 'subtract'}
+    _fntype_map = {'0': 'traditional(planes)', '1': 'full(points)', '2': 'non-uniform_sampling',
+                   '3': 'projection-spectroscopy'}
+
+    # Ordered Dictionary: Maintains the order in which elements are inserted
+    _result_nonaxis = collections.OrderedDict()  # Stores Result for Independent Parameters
+    _result_axis = collections.OrderedDict()  # Stores Result for Axis Dependent Parameters
+
+    # Get the Non-Axis Parameters directly
+    for i in _nonaxis_parameters:
         if i == 'AQ_mod':
-            _result_nonaxis[i] = aq_mod_map[GETPAR(i)]
+            _result_nonaxis[i] = _aq_mod_map[GETPAR(i)]
         elif i == 'DQDMODE':
-            _result_nonaxis[i] = dqdmode_map[GETPAR(i)]
+            _result_nonaxis[i] = _dqdmode_map[GETPAR(i)]
+        elif i == 'FnTYPE':
+            _result_nonaxis[i] = _fntype_map[GETPAR(i)]
         else:
             _result_nonaxis[i] = GETPAR(i)
 
-    # Getting each Nuclear Parameter after
-    # appending the index name of the parameter, eg:"SFO1"
+    # Getting each Nuclear Parameter after appending the index name of the parameter, eg:"SFO1"
     for i in range(len(nucleus_status_list)):
         if nucleus_status_list[i] != 'off':
-            for j in nuc_parameters:
+            for j in _nuc_parameters:
                 each_param = j + str(i + 1)
                 _result_nonaxis[each_param] = GETPAR(each_param)
 
-    # Shaped Pulse Parameters
+    # Proper Names Of Shape Files, Gradient Files, CPD Programs
     _spnam_names = []
     _gpnam_names = []
     _cpdprg_names = []
 
-    _curr_dir_filenames = []
-    for i in sp_parameters:
+    _curr_dir_filenames = []  # Names of shape files, gp files and cpd progs in the dataset dir
+
+    # Shaped Pulse Parameters
+    for i in _sp_parameters:
         if 'sp' in pulse_parameters:
             if i == 'SPNAM':
                 spnam_arraystring = GETPAR('SPNAM')
@@ -194,10 +198,10 @@ def get_values(pulse_parameters, nucleus_status_list):
                 for j in pulse_parameters['sp']:
                     each_param = str(i + " " + str(j))
                     _result_nonaxis[each_param] = GETPAR(each_param)
-    MSG(str(_spnam_names))
+    # MSG(str(_spnam_names))
 
-    # GP Parameters
-    for i in gp_parameters:
+    # Gradient Pulse Parameters
+    for i in _gp_parameters:
         if 'gp' in pulse_parameters:
             if i == 'GPNAM':
                 gpnam_arraystring = GETPAR('GPNAM')
@@ -211,8 +215,9 @@ def get_values(pulse_parameters, nucleus_status_list):
                 for j in pulse_parameters['gp']:
                     each_param = str(i + " " + str(j))
                     _result_nonaxis[each_param] = GETPAR(each_param)
-    # CPD Parameters
-    for i in cpd_parameters:
+
+    # CPD Programs
+    for i in _cpd_parameters:
         if 'cpd' in pulse_parameters:
             if i == 'CPDPRG':
                 cpdprg_arraystring = GETPAR('CPDPRG')
@@ -232,27 +237,32 @@ def get_values(pulse_parameters, nucleus_status_list):
         for i in pulse_parameters['p']:
             each_param = 'P' + ' ' + str(i)
             _result_nonaxis[each_param] = GETPAR(each_param)
-
     if 'pl' in pulse_parameters:
         for i in pulse_parameters['pl']:
             each_param = 'PLW' + ' ' + str(i)
             _result_nonaxis[each_param] = GETPAR(each_param)
 
     # Axis Dependent Parameters
-    for i in axis_parameters:
+    for i in _axis_parameters:
         for j in range(GETACQUDIM()):
             _result_axis[str(j + 1) + " " + i] = (GETPAR(str(j + 1) + " " + i))
+
+    # Check for Non-Uniform Sampling
+    if _result_nonaxis["FnTYPE"] == "non-uniform_sampling":
+        _curr_dir_filenames.append('nuslist')
 
     return _result_nonaxis, _result_axis, _spnam_names, _gpnam_names, _cpdprg_names, _curr_dir_filenames
 
 
 def write_to_file(data_dir, name, pp_original, result_nonaxis, result_axis):
+    # Takes the data_dir path, name of the modified file, list with original pulse program and results
+    # Writes it to a new file in the data directory
     try:
         with open(data_dir + '/' + name, 'w') as f:
             for i in pp_original:
                 f.write(i)
 
-            f.write(';' * 25)
+            f.write(';' * 25)  # Separator after the Original Pulse Program
             f.write('\n')
 
             for i in result_nonaxis:
@@ -269,23 +279,41 @@ def write_to_file(data_dir, name, pp_original, result_nonaxis, result_axis):
         raise Exception("Couldn't create the modified pulse program")
 
 
-def zip_files(data_dir, py_working_dir, paths, filenames):
+def zip_files(data_dir, py_working_dir, paths, filenames, zipfile_name):
     _nmr_wd = py_working_dir[:py_working_dir.find('/prog/curdir')] + '/exp/stan/nmr'
     _abs_paths = []
 
-    for each_name in filenames:
-        for fp in paths:
-            each_abs_path = ((_nmr_wd + '/') if fp[0] != '/' else '') + fp + '/' + each_name
-            # MSG(cwd)
-            if os.path.exists(each_abs_path):
-                _abs_paths.append(each_abs_path)
-                break
+    for idx, each_name in enumerate(filenames):
+        if each_name != '':
 
-    with ZipFile(data_dir + '/' + "useful_files.zip", 'a') as zip:
-        for i in range(len(_abs_paths)):
-            zip.write(_abs_paths[i], filenames[i])
-    MSG(str(_abs_paths))
+            flag = False
+            for fp in paths:
+                each_abs_path = ((_nmr_wd + '/') if fp[0] != '/' else '') + fp + '/' + each_name
+                # MSG(cwd)
+                if os.path.exists(each_abs_path):
+                    MSG("File name: " +each_name + ", File Path:"+ each_abs_path)
+                    flag = True
+                    _abs_paths.append(each_abs_path)
+                    break
+            if not flag:
+                warnings.warn("Couldn't find file {}: {}".format(idx+1, each_name))
 
+        with ZipFile(data_dir + '/' + zipfile_name, 'a') as zip:
+            for i in range(len(_abs_paths)):
+                zip.write(_abs_paths[i], filenames[i])
+        # MSG(str(_abs_paths))
+
+
+def get_fqlist_filenames():
+    index_limit = 8
+    result = []
+
+    for i in range(1, index_limit + 1):
+        each_fq_list = "FQ" + str(i) + "LIST"
+        result.append(str(GETPAR(each_fq_list)).strip())
+        # MSG(each_fq_list)
+    # MSG("FQLIST LIST:" + str(result))
+    return result
 
 def main():
     pp_filename = str(GETPAR('PULPROG')).strip()
@@ -301,25 +329,61 @@ def main():
     # Calculating the data directory
     data_dir = dd[3] + '/' + dd[0] + '/' + dd[1]
 
-    pp_paths, spnam_paths, cpd_paths, gp_paths = get_paths()
-    pp_original, pulse_parameters, include_filenames, prosol_filenames = get_parameters(py_working_dir, pp_filename,
-                                                                                        pp_paths)
-    nucleus_status = get_nucleus_status(data_dir)
-    print(nucleus_status)
-    print(pulse_parameters)
+    pp_paths = get_paths("PP_DIRS")
+    spnam_paths = get_paths("SHAPE_DIRS")
+    cpd_paths = get_paths("CPD_DIRS")
+    gp_paths = get_paths("GP_DIRS")
 
-    result_nonaxis, result_axis, spnam_filenames, gpnam_filenames, cpdprg_filenames, curr_dir_filenames = get_values(
+    va_paths = get_paths("VA_DIRS")
+    vc_paths = get_paths("VC_DIRS")
+    vd_paths = get_paths("VD_DIRS")
+    vp_paths = get_paths("VP_DIRS")
+    vt_paths = get_paths("VT_DIRS")
+    # MSG(str(va_paths))
+    # MSG(str(vc_paths))
+    # MSG(str(vd_paths))
+    fq_paths = get_paths("F1_DIRS")
+    MSG("FQLIST PATH:" + str(fq_paths))
+
+    pp_original, pulse_parameters, include_filenames, prosol_filenames = get_parameters(py_working_dir, pp_filename,
+                                                                                       pp_paths)
+    fq_filenames = get_fqlist_filenames()
+    MSG("FQLIST:" + str(fq_filenames))
+
+    nucleus_status = get_nucleus_status(data_dir)
+    # print(nucleus_status)
+    # print(pulse_parameters)
+
+    result_nonaxis, result_axis, spnam_filenames, gpnam_filenames, cpd_filenames, curr_dir_filenames = get_values(
         pulse_parameters,
         nucleus_status)
-    write_to_file(data_dir, "pp_modified.txt", pp_original, result_nonaxis, result_axis)
 
-    zip_files(data_dir, py_working_dir, spnam_paths, spnam_filenames)
-    zip_files(data_dir, py_working_dir, pp_paths, include_filenames)
-    zip_files(data_dir, py_working_dir, gp_paths, gpnam_filenames)
-    zip_files(data_dir, py_working_dir, cpd_paths, cpdprg_filenames)
-    zip_files(data_dir, py_working_dir, [data_dir], curr_dir_filenames)
-    zip_files(data_dir, py_working_dir, ['lists/prosol/pulseassign'], prosol_filenames)
+    pp_modified_filename = "pp_modified.txt"
+    write_to_file(data_dir, pp_modified_filename, pp_original, result_nonaxis, result_axis)
 
+    zipfile_name = "useful_files.zip"
+    zipfile_path = data_dir + '/' + zipfile_name
+    if(os.path.exists(zipfile_path)):
+        os.remove(zipfile_path)
+
+    zip_files(data_dir, py_working_dir, spnam_paths, spnam_filenames, zipfile_name)
+    zip_files(data_dir, py_working_dir, pp_paths, include_filenames, zipfile_name)
+    zip_files(data_dir, py_working_dir, gp_paths, gpnam_filenames, zipfile_name)
+    zip_files(data_dir, py_working_dir, cpd_paths, cpd_filenames, zipfile_name)
+
+    zip_files(data_dir, py_working_dir, [data_dir], curr_dir_filenames, zipfile_name)
+
+    prosol_path = 'lists/prosol/pulseassign'
+    prosol_paths = [prosol_path]
+    zip_files(data_dir, py_working_dir, prosol_paths, prosol_filenames, zipfile_name)
+
+    zip_files(data_dir, py_working_dir, va_paths, [str(GETPAR("VALIST").strip())], zipfile_name)
+    zip_files(data_dir, py_working_dir, vc_paths, [str(GETPAR("VCLIST").strip())], zipfile_name)
+    zip_files(data_dir, py_working_dir, vd_paths, [str(GETPAR("VDLIST").strip())], zipfile_name)
+    zip_files(data_dir, py_working_dir, vp_paths, [str(GETPAR("VPLIST").strip())], zipfile_name)
+    zip_files(data_dir, py_working_dir, vt_paths, [str(GETPAR("VTLIST").strip())], zipfile_name)
+
+    zip_files(data_dir, py_working_dir, fq_paths, fq_filenames, zipfile_name)
 
 if __name__ == '__main__':
     main()
