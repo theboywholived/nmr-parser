@@ -1,16 +1,20 @@
 # -*- coding: utf-8 -*-
+import datetime
 import fnmatch
 import os
 import re
+import sys
 import warnings
 from zipfile import ZipFile
+from parser import Parser
+
 
 pp_filename = str(GETPAR('PULPROG')).strip()
+config_filename = "parfile-dirs.prop"
 # Current working directory for python files in Bruker TopSpin
 # In topspin3.5pl7, it's '/opt/topspin3.5pl7/prog/curdir/go'
 # This path is later used to calculate other topspin paths
 py_working_dir = os.popen('pwd').read().strip()
-
 # Data directory, i.e, where the TopSpin working dataset is located, in topspin format
 dd = CURDATA()
 
@@ -29,7 +33,6 @@ except ImportError:
         from dummy_thread import get_ident as _get_ident
     except:
         pass
-
 
 try:
     from _abcoll import KeysView, ValuesView, ItemsView
@@ -283,32 +286,53 @@ class OrderedDict(dict):
         "od.viewitems() -> a set-like object providing a view on od's items"
         return ItemsView(self)
 
+#
+# def clean_regex(parameters_list):
+#     """
+#     Helper Function for Cleaning Regex Output
+#     :param parameters_list: raw parameters list
+#     :return:
+#     parameters_list: cleaned parameters list
+#     """
+#     #
+#     for i in range(len(parameters_list)):
+#         parameters_list[i] = re.sub('[\W_]+', '', parameters_list[i])
+#     # parameters_list = list(set(parameters_list))  # Remove Duplicates
+#     parameters_list.sort()
+#     return parameters_list
+#
+#
 
-def clean_regex(parameters_list):
-    """
-    Helper Function for Cleaning Regex Output
-    :param parameters_list: raw parameters list
-    :return:
-    parameters_list: cleaned parameters list
-    """
-    #
-    for i in range(len(parameters_list)):
-        parameters_list[i] = re.sub('[\W_]+', '', parameters_list[i])
-    parameters_list = list(set(parameters_list))  # Remove Duplicates
-    parameters_list.sort()
-
-    return parameters_list
-
-
-def get_trailing_numbers(s):
-    """
-    Helper Function, gets the number from the end of the string
-    :param s: input string, eg: "sp23"
-    :return: outut string, eg: "23"
-    """
-    num = re.search(r'\d+$', s)
-
-    return int(num.group()) if num else None
+#
+#
+# def clean_parameters_dict(raw_parameters_dict):
+#     parsed_parameters = {}
+#     remove_empty_elements(raw_parameters_dict)
+#     # Cleans the raw pulse parameter regex output to store in parsed_pulse_parameters
+#     for key, value in raw_parameters_dict.items():
+#         raw_parameters_dict[key] = clean_regex(value)
+#     for key, value in raw_parameters_dict.items():
+#         for j in value:
+#             parsed_parameters.setdefault(key, [])
+#             if get_trailing_numbers(j) is not None:
+#                 parsed_parameters[key].append(get_trailing_numbers(j))
+#         parsed_parameters[key].sort()
+#
+#     # Remove Empty Lists From Dictionary
+#     remove_empty_elements(parsed_parameters)
+#     for key in parsed_parameters:
+#         parsed_parameters[key] = list(set(parsed_parameters[key]))
+#     return parsed_parameters
+#
+#
+# def get_trailing_numbers(s):
+#     """
+#     Helper Function, gets the number from the end of the string
+#     :param s: input string, eg: "sp23"
+#     :return: outut string, eg: "23"
+#     """
+#     num = re.search(r'\d+$', s)
+#     return int(num.group()) if num else None
 
 
 def split_arraystring(s):
@@ -331,144 +355,13 @@ def split_arraystring(s):
     return ret
 
 
-def get_paths(pattern):
-    """
-    Gets list of paths (in priority order) for pulse program and useful parameter files from the Bruker configuration
-    file,"parfile-dirs.prop" located in the Python working directory
-    :param pattern: heading under which it is stored in the Bruker configuration file
-    :return: list of paths for the pattern
-    """
-    filepaths = []
-    conf_filename = "parfile-dirs.prop"
-    try:
-        f = open(conf_filename, 'r')
-        for i in f:
-            if pattern in i:
-                filepaths += i[(len(pattern) + 1):].strip().split(';')
-        f.close()
-
-    except FileNotFoundError:
-        raise FileNotFoundError("Couldn't find parfile-dirs.prop in /topspin.../prog/curdir/go/")
-    except IndexError:
-        raise IndexError("Couldn't parse paths from parfile-dirs.prop file. Please correct the file.")
-    return filepaths
 
 
-def parse_pp(pp_filename, pp_file_paths):
-    """
-    Parses the pulseprogram to output the original pulseprog, relevant parameters and required filenames
-    :param pp_filename: Name of the pulseprogram file
-    :param pp_file_paths: List of possible paths for the pulse program, in their priority order.
-    :return:
-    pp_orig: a list of all the lines in the original pulseprogram,
-    parsed_pulse_parameters: Dictionary containing the names and indices of the pulse parameters
-    include_filenames: Names of the filenames included in the pulseprogram
-    prosol_filenames: Names of the filenames included in the pulseprogram
-    """
 
-    # Regular expression patterns for all parameters in pulseprogram
-    _prefixes = {"p": r"[ (]p\d+",
-                 "sp": r"[:=]sp\d+",
-                 "pl": r"[ ]pl\d+",
-                 "gp": r"[ :]gp\d+",
-                 "d": r"[ :=]d\d+",
-                 "cnst": r"cnst\d+",
-                 "cpd": r"[ :]cpds?\d+"
-                 }
-    _pp_working_dir = py_working_dir[:py_working_dir.find(
-        os.sep + "prog" + os.sep + "curdir")] + os.sep + "exp" + os.sep + "stan" + os.sep + "nmr"
-
-    _raw_pulse_parameters = {}
-    # Raw Pulse Parameters, eg: {'cnst': ['cnst10', 'cnst4'], 'd': ['d26'], 'gp': ['gp1', 'gp2'], ...}
-    # Parsed Pulse Parameters, eg: {'cnst': [4, 10], 'd': [26], 'gp': [1, 2], ...}
-    parsed_pulse_parameters = {}
-    include_filenames = []
-    prosol_filenames = []
-    pp_orig = []  # Stores the original pulse program
-
-    # Navigates in each path for the pulse program, finds the first one which contains pp_filename. Iterates line
-    # by line, storing the original pulse program and matching the prefixes to find the pulse parameters in use.
-    # Stores the pulse parameters in _raw_pulse_parameters
-    for fp in pp_file_paths:
-        _pp_abs_path = ((_pp_working_dir + os.sep) if fp[0] != os.sep else '') + fp + os.sep + pp_filename
-        if os.path.exists(_pp_abs_path):
-            pp = open(_pp_abs_path)
-            for i in pp:
-                pp_orig += [i]
-                if len(str(i)) > 0 and str(i)[0] != ';':
-                    for prefix in _prefixes:
-                        _raw_pulse_parameters.setdefault(prefix, [])
-                        _raw_pulse_parameters[prefix] += re.findall(_prefixes[prefix], i)
-                    # Get the names of the include and prosol files
-                    try:
-                        if str(i).startswith("#include"):
-                            _filename = (str(i).split('<')[1]).split('>')[0]
-                            include_filenames.append(_filename)
-                        elif str(i).startswith("prosol"):
-                            _filename = (str(i).split('<')[1]).split('>')[0]
-                            prosol_filenames.append(_filename)
-                    except IndexError:
-                        raise Exception("Couldn't parse include/prosol fields in the pulseprogram")
-            pp.close()
-            break
-    if len(pp_orig) == 0:
-        raise FileNotFoundError("Couldn't find the Pulse Program")
-
-    # Remove Empty Lists From Dictionary
-    for key in _raw_pulse_parameters.copy():
-        if _raw_pulse_parameters[key] == []:
-            _raw_pulse_parameters.pop(key)
-
-    # Cleans the raw pulse parameter regex output to store in parsed_pulse_parameters
-    for key, value in _raw_pulse_parameters.items():
-        _raw_pulse_parameters[key] = clean_regex(value)
-    for key, value in _raw_pulse_parameters.items():
-        for j in value:
-            parsed_pulse_parameters.setdefault(key, [])
-            if get_trailing_numbers(j) is not None:
-                parsed_pulse_parameters[key].append(get_trailing_numbers(j))
-        parsed_pulse_parameters[key].sort()
-
-    # Remove Empty Lists From Dictionary
-    for key in parsed_pulse_parameters.copy():
-        if parsed_pulse_parameters[key] == []:
-            parsed_pulse_parameters.pop(key)
-
-    return pp_orig, parsed_pulse_parameters, include_filenames, prosol_filenames
-
-
-def get_nucleus_status():
-    """
-    Parses the 'acqus' file, gets status of each possible nucleus
-    :return:
-    nucleus_status: list with status of each possible nucleus
-                    eg: ['1H', 'off', '15N', 'off', 'off', 'off', 'off', 'off'] NUC1, NUC3 are on, others are off
-    """
-    nucleus_status = []
-    _aqus_path = data_dir + os.sep + "acqus"
-    try:
-        f = open(_aqus_path)
-        for line in f:
-            if len(line) >= 10 and not (line.startswith("##$NUCLEUS")) and line.startswith(
-                    "##$NUC"):
-                nuc = (line.split("= "))
-                # print(each_nuc[1])
-                nuc[1] = nuc[1].strip('<>\n')
-                nucleus_status.append(nuc[1])
-        f.close()
-    except IOError:
-        raise IOError("Couldn't read acqus file from: " + dd + os.sep + 'acqus')
-    except IndexError:
-        raise IndexError("Could'nt parse nuclear parameters from the pulseprogram")
-
-    return nucleus_status
-
-
-def get_values_and_pulse_filenames(pulse_parameters, nucleus_status_list):
+def get_values_and_pulse_filenames(pulse_parameters):
     """
 
     :param pulse_parameters: Dictionary of relevant parameters and their indices
-    :param nucleus_status_list: status list for each nucleus (either containing an atom or off)
     :return:
     result_nonaxis: Dictionary of non-axis parameters and their values
     result_axis: Dictionary of axis parameters and their values
@@ -480,7 +373,7 @@ def get_values_and_pulse_filenames(pulse_parameters, nucleus_status_list):
     _NONAXIS_PARAMETERS = ['AQ_mod', 'DS', 'NS', 'FW', 'RG', 'DE', 'NBL', 'DQDMODE', 'PH_ref', 'FnTYPE']
     _AXIS_PARAMETERS = ['TD', 'SW', 'AQ']
 
-    _NUC_PARAMETERS = ['NUC', 'O', 'SFO', 'BF']
+    _NUC_PARAMETERS = ['NUC', 'O', 'BF']
     _SP_PARAMETERS = ['SPNAM', 'SPOAL', 'SPOFFS', 'SPW']
     _GP_PARAMETERS = ['GPNAM', 'GPZ']
     _CPD_PARAMETERS = ['CPDPRG']
@@ -506,11 +399,15 @@ def get_values_and_pulse_filenames(pulse_parameters, nucleus_status_list):
             result_nonaxis[i] = GETPAR(i)
 
     # Getting each Nuclear Parameter after appending the index name of the parameter, eg:"SFO1"
-    for i in range(len(nucleus_status_list)):
-        if nucleus_status_list[i] != 'off':
+    for i in range(8):
+        if GETPAR("NUC" + str(i + 1)) != "off":
             for j in _NUC_PARAMETERS:
-                _each_param = j + str(i + 1)
-                result_nonaxis[_each_param] = GETPAR(_each_param)
+                if j == 'O':
+                    _each_param = j + str(i + 1) + 'P'
+                    result_nonaxis[_each_param] = GETPAR(_each_param)
+                else:
+                    _each_param = j + str(i + 1)
+                    result_nonaxis[_each_param] = GETPAR(_each_param)
 
     # Proper Names Of Shape Files, Gradient Files, CPD Programs
     spnam_names = []
@@ -577,6 +474,26 @@ def get_values_and_pulse_filenames(pulse_parameters, nucleus_status_list):
         for i in pulse_parameters['pl']:
             _each_param = 'PLW' + ' ' + str(i)
             result_nonaxis[_each_param] = GETPAR(_each_param)
+    # Delays
+    if 'd' in pulse_parameters:
+        for i in pulse_parameters['d']:
+            _each_param = 'D' + ' ' + str(i)
+            result_nonaxis[_each_param] = GETPAR(_each_param)
+    # Constants
+    if 'cnst' in pulse_parameters:
+        for i in pulse_parameters['cnst']:
+            _each_param = 'CNST' + ' ' + str(i)
+            result_nonaxis[_each_param] = GETPAR(_each_param)
+    # Loop Counters
+    if 'l' in pulse_parameters:
+        for i in pulse_parameters['l']:
+            _each_param = 'l' + ' ' + str(i)
+            result_nonaxis[_each_param] = GETPAR(_each_param)
+    # Pulse decoupling
+    if 'pcpd' in pulse_parameters:
+        for i in pulse_parameters['pcpd']:
+            _each_param = 'pcpd' + ' ' + str(i)
+            result_nonaxis[_each_param] = GETPAR(_each_param)
 
     # Axis Dependent Parameters
     for i in _AXIS_PARAMETERS:
@@ -602,17 +519,18 @@ def get_matching_filenames(pattern, path):
     return names
 
 
-def write_to_file(name, pp_original, result_nonaxis, result_axis):
+def write_to_file(path, name, pp_original, result_nonaxis, result_axis):
     """
     Writes relevant data to a new file in the data directory
+    :param path:
     :param name: Filename for the new file to be written
     :param pp_original: Original pulseprogram
     :param result_nonaxis: Names and values of non axis parameters
     :param result_axis: Names and values of the axis parameters
     """
-
+    abs_path = os.path.join(path, name)
     try:
-        f = open(data_dir + os.sep + name, 'w')
+        f = open(abs_path, 'w')
         for i in pp_original:
             f.write(i)
         f.write(";***Axis Parameters***")
@@ -629,33 +547,37 @@ def write_to_file(name, pp_original, result_nonaxis, result_axis):
             f.write('\n')
         f.close()
     except IOError:
-        raise Exception("Couldn't create the modified pulse program")
+        raise Exception("Couldn't create" + abs_path)
 
 
-def add_files_to_zip(paths, filenames, zf, folder_name, curr_dir=False):
+def add_files_to_zip(paths, filenames, zf, folder_name, files_taken_from, curr_dir=False):
     """
     Using the list of paths, filenames and the zipfile object, zip up the files
+    :param files_taken_from: Dictionary of Tuples(containing file name and path) of the zipped files
     :param paths: List of possible paths for each list
     :param filenames: List of filenames
     :param zf: The ZipFile Object
     :param folder_name: Name of the folder name
     :param curr_dir: Whether the filenames exist in the dataset directory or not, False by default
     """
-    _nmr_wd = py_working_dir[:py_working_dir.find('/prog/curdir')] + '/exp/stan/nmr'
-
+    _nmr_wd = os.path.join(py_working_dir[:py_working_dir.find(
+        os.sep + "prog" + os.sep + "curdir")], "exp", "stan", "nmr")
+    # MSG(_nmr_wd)
     for idx, each_name in enumerate(filenames):
         if each_name != '':
             flag = False
             for fp in paths:
-                each_abs_path = ((_nmr_wd + os.sep) if fp[0] != os.sep else '') + fp + os.sep + each_name
+                each_abs_path = ((_nmr_wd + os.sep) if not os.path.isabs(fp) else '') + fp + os.sep + each_name
                 if os.path.exists(each_abs_path):
                     flag = True
-                    each_filename = each_name.encode('ascii', 'replace')
+                    encoded_each_name = each_name.encode('ascii', 'replace')
                     if curr_dir:
-                        path_to_write = "data-dir-files" + os.sep + folder_name + os.sep + each_filename
+                        path_to_write = os.path.join("data-dir-files", folder_name, encoded_each_name)
                     else:
-                        path_to_write = folder_name + os.sep + each_filename
+                        path_to_write = os.path.join(folder_name, encoded_each_name)
                     if not (path_to_write in zf.namelist()):
+                        # files_created.append((encoded_each_name, path_to_write))
+                        files_taken_from.append((each_name, each_abs_path))
                         zf.write(each_abs_path, path_to_write)
                     break
             if not flag:
@@ -680,18 +602,20 @@ def main():
     """
     It all begins here.
     """
-    # Get a list of paths for each kind of file.
-    pp_paths = get_paths("PP_DIRS")
-    spnam_paths = get_paths("SHAPE_DIRS")
-    cpd_paths = get_paths("CPD_DIRS")
-    gpnam_paths = get_paths("GP_DIRS")
-    va_paths = get_paths("VA_DIRS")
-    vc_paths = get_paths("VC_DIRS")
-    vd_paths = get_paths("VD_DIRS")
-    vp_paths = get_paths("VP_DIRS")
-    vt_paths = get_paths("VT_DIRS")
-    fq_paths = get_paths("F1_DIRS")
-    prosol_path = "lists" + os.sep + "prosol" + os.sep + "pulseassign"
+    files_taken_from = []
+    p = Parser(py_working_dir, pp_filename)
+    # Get a list of paths for each kind of file.//
+    pp_paths = p.get_path_list("PP_DIRS", config_filename)
+    spnam_paths = p.get_path_list("SHAPE_DIRS", config_filename)
+    cpd_paths = p.get_path_list("CPD_DIRS", config_filename)
+    gpnam_paths = p.get_path_list("GP_DIRS", config_filename)
+    va_paths = p.get_path_list("VA_DIRS", config_filename)
+    vc_paths = p.get_path_list("VC_DIRS", config_filename)
+    vd_paths = p.get_path_list("VD_DIRS", config_filename)
+    vp_paths = p.get_path_list("VP_DIRS", config_filename)
+    vt_paths = p.get_path_list("VT_DIRS", config_filename)
+    fq_paths = p.get_path_list("F1_DIRS", config_filename)
+    prosol_path = os.path.join("lists", "prosol", "pulseassign")
     prosol_paths = [prosol_path]
 
     # Get names of the files required from the dataset directory
@@ -702,47 +626,85 @@ def main():
     # Get names of the fqlist files
     fq_filenames = get_fqlist_filenames()
 
+    names_paths_dict = {(pp_filename,): pp_paths, tuple(cpd_data_dir_filenames): [data_dir]}
+
     # Get a copy of the orig pulseprogram, list of parameters, names of include and prosol files from the pulseprogram
-    pp_original, pulse_parameters, include_filenames, prosol_filenames = parse_pp(pp_filename,
-                                                                                pp_paths)
-    nucleus_status = get_nucleus_status()
+
+    pp_original, pp_original_abs_path, pulse_parameters, include_filenames, prosol_filenames, _ = p.parse_pp_cpd(
+        names_paths_dict)
+    p, pl = p.parse_prosol(prosol_filenames[0], prosol_path)
+    print(p, pl)
+    # MSG(str(pulse_parameters))
     result_nonaxis, result_axis, spnam_filenames, gpnam_filenames, cpd_filenames = get_values_and_pulse_filenames(
-        pulse_parameters,
-        nucleus_status)
+        pulse_parameters)
+
+    mr_path = os.path.join(data_dir, "mr")
+    if not os.path.exists(os.path.dirname(mr_path + os.sep)):
+        os.makedirs(os.path.dirname(mr_path + os.sep))
 
     # Specify name of the txt file to store parameters and the original pulse program
-    pp_modified_filename = "pp_modified.txt"
-    write_to_file(pp_modified_filename, pp_original, result_nonaxis, result_axis)
+    pp_modified_filename = "MRpulseprogram"
+    pp_modified_path = mr_path
+    write_to_file(pp_modified_path, pp_modified_filename, pp_original, result_nonaxis, result_axis)
+
+    pp_sep = '_'
+    pp_global_filename = pp_filename + pp_sep + dd[0] + pp_sep + dd[1] + pp_sep + ''.join(
+        (str(datetime.date.today()).split('-')))
+    pp_global_path = os.path.join(os.path.expanduser('~'), "pp_logs")
+    MSG(os.path.dirname(pp_global_path + os.sep))
+    if not os.path.exists(os.path.dirname(pp_global_path + os.sep)):
+        os.makedirs(os.path.dirname(pp_global_path + os.sep))
+    write_to_file(pp_global_path, pp_global_filename, pp_original, result_nonaxis, result_axis)
 
     # Specify name of the zip to contain the required files
-    zipfile_name = "useful_files.zip"
-    zipfile_path = data_dir + os.sep + zipfile_name
+    zipfile_name = "MRfiles.zip"
+    zipfile_path = mr_path + os.sep + zipfile_name
 
     # Delete the existing zip file(from a previous run) in the dataset directory, if present
-    if (os.path.exists(zipfile_path)):
+    if os.path.exists(zipfile_path):
         os.remove(zipfile_path)
 
     # Create a new zipped file
     zf = ZipFile(zipfile_path, 'w')
     # Add a type of file to the zip, with each function call; also specify folder name
-    add_files_to_zip(spnam_paths, spnam_filenames, zf, "spnam")
-    add_files_to_zip(pp_paths, include_filenames, zf, "include-files")
-    add_files_to_zip(gpnam_paths, gpnam_filenames, zf, "gpnam")
-    add_files_to_zip(cpd_paths, cpd_filenames, zf, "cpdprg")
-    add_files_to_zip([data_dir], spnam_data_dir_filenames, zf, "spnam", curr_dir=True)
-    add_files_to_zip([data_dir], gpnam_data_dir_filenames, zf, "gpnam", curr_dir=True)
-    add_files_to_zip([data_dir], cpd_data_dir_filenames, zf, "cpdprg", curr_dir=True)
-    add_files_to_zip([data_dir], nus_data_dir_filenames, zf, "nus", curr_dir=True)
-    add_files_to_zip(prosol_paths, prosol_filenames, zf, "prosols")
-    add_files_to_zip(va_paths, [str(GETPAR("VALIST").strip())], zf, "valist")
-    add_files_to_zip(vc_paths, [str(GETPAR("VCLIST").strip())], zf, "vclist")
-    add_files_to_zip(vd_paths, [str(GETPAR("VDLIST").strip())], zf, "vdlist")
-    add_files_to_zip(vp_paths, [str(GETPAR("VPLIST").strip())], zf, "vplist")
-    add_files_to_zip(vt_paths, [str(GETPAR("VTLIST").strip())], zf, "vtlist")
-    add_files_to_zip(fq_paths, fq_filenames, zf, "fqlists")
+    add_files_to_zip(spnam_paths, spnam_filenames, zf, "spnam", files_taken_from)
+    add_files_to_zip(pp_paths, include_filenames, zf, "include_files", files_taken_from)
+    add_files_to_zip(gpnam_paths, gpnam_filenames, zf, "gpnam", files_taken_from)
+    add_files_to_zip(cpd_paths, cpd_filenames, zf, "cpdprg", files_taken_from)
+    add_files_to_zip(prosol_paths, prosol_filenames, zf, "prosols", files_taken_from)
+    add_files_to_zip(va_paths, [str(GETPAR("VALIST").strip())], zf, "valist", files_taken_from)
+    add_files_to_zip(vc_paths, [str(GETPAR("VCLIST").strip())], zf, "vclist", files_taken_from)
+    add_files_to_zip(vd_paths, [str(GETPAR("VDLIST").strip())], zf, "vdlist", files_taken_from)
+    add_files_to_zip(vp_paths, [str(GETPAR("VPLIST").strip())], zf, "vplist", files_taken_from)
+    add_files_to_zip(vt_paths, [str(GETPAR("VTLIST").strip())], zf, "vtlist", files_taken_from)
+    add_files_to_zip(fq_paths, fq_filenames, zf, "fqlists", files_taken_from)
+
+    add_files_to_zip([data_dir], spnam_data_dir_filenames, zf, "spnam", files_taken_from, curr_dir=True)
+    add_files_to_zip([data_dir], gpnam_data_dir_filenames, zf, "gpnam", files_taken_from, curr_dir=True)
+    add_files_to_zip([data_dir], cpd_data_dir_filenames, zf, "cpdprg", files_taken_from, curr_dir=True)
+    add_files_to_zip([data_dir], nus_data_dir_filenames, zf, "nus", files_taken_from, curr_dir=True)
 
     # Close the created zip file (IMPORTANT)
     zf.close()
+
+    output_topspin = ""
+    newline = '\n'
+    output_topspin += "Python script run from:" + newline
+    output_topspin += sys.argv[0] + newline
+    output_topspin += "Input: pulseprogram taken from:" + newline
+    output_topspin += pp_original_abs_path + newline
+    output_topspin += "Output: pulseprogram annotated with parameters:" + newline
+    output_topspin += pp_modified_path + os.sep + pp_modified_filename + newline
+    output_topspin += newline
+
+    output_topspin += "Files copied into zip directory:" + newline
+    for i in files_taken_from:
+        output_topspin += i[1] + newline
+    output_topspin += newline
+    output_topspin += "zipfile created:" + newline
+    output_topspin += zipfile_path
+
+    MSG(title=os.path.basename(sys.argv[0]), message=output_topspin)
 
 
 if __name__ == '__main__':

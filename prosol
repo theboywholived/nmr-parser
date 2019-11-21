@@ -1,0 +1,151 @@
+#*******************************************************************
+#
+# $Source: /sc/CvsTree/sc/gen/src/prg/lists/prosol/pulseassign/triple2,v $
+#
+# Copyright (c) 2009
+# Bruker BioSpin GmbH
+# D-76287 Rheinstetten, Germany
+#
+# All Rights Reserved
+#
+#
+# $Id: triple2,v 1.6.2.2 2017/03/02 08:10:33 wem Exp $
+#
+#*******************************************************************
+#
+#avance-version (17/02/22)
+Version=3.000;
+#
+#pulses
+#
+P[0]=PW90;1                             #  90 deg pulse F1, 1H
+P[1]=PW90;1                              #  90 deg pulse F1, 1H
+P[2]=PW90*2;1                           # 180 deg pulse F1, 1H
+P[3]=PW90;2                             #  90 deg pulse F2, 13C
+P[4]=PW90*2;2                           # 180 deg pulse F2, 13C
+P[5]=SQPW[1]*0.66;1                     #  60 deg pulse F1, 1H, TOCSY
+P[6]=SQPW[1];1                          #  90 deg pulse F1, 1H, TOCSY
+P[7]=SHPW[17];1				# 180 deg pulse F1, 1H, cleanex H2O
+P[8]=SHPW[4];2	 			# adiabatic 180 F2, 13C
+P[9]=SQPW[1];2                          #  90 deg pulse F2, TOCSY
+P[10]=SQPW[10];1			# cleanex Spinlock
+P[11]=SHPW[5];1				# flip-back pulse, F1, 1H
+P[12]=SHPW[5]*2;1			# 180 deg sel. F1, 1H (exc. scul)
+P[13]=SHPW[6];2 			# Cali sel. 90 deg, F2, 13C
+P[14]=SHPW[8];2				# Cali sel.180 deg, F2, 13C
+P[15]=SHPW[16];1			# 90 deg sel. F1, 1H, cleanex H2O
+#
+#
+P[18]=SHPW[4];1				# off-res presat, F1, 1H
+#
+#
+P[21]=PW90;3                            #  90 deg pulse F3
+P[22]=PW90*2;3                          # 180 deg pulse F3
+P[23]=SHPW[9];2				# Calpha sel.  90 deg, F2, 13C
+P[24]=SHPW[11];2			# Calpha sel. 180 deg, F2, 13C
+P[25]=SQPW[16]*2;3			# 180 deg F3, 15N, Rexchange
+P[26]=SQPW[0];1				# 90 deg pulse F1, 1H, dec.
+P[27]=PW90;1				# WATERGATE pulse, F1, 1H
+#
+P[29]=SHPW[6];1                         # flip back pulse 2
+P[30]=SHPW[21];2			# sim Ca+CO decoupling
+P[31]=SHPW[22];2			# Cbeta decoupling
+P[33]=SHPW[15];2			# Calpha med sel. 180 deg, F2, 13C
+P[34]=SHPW[16];2			# Calpha high sel. 180 deg, F2, 13C
+P[35]=SHPW[17];2			# Calpha high sel. 90 deg, F2, 13C
+P[39]=SHPW[6];3				# F3, T1rho, adiabatic ramping
+#
+#
+P[61]=SQPW[5];2	 			# low power decoupling, F2, 13C
+P[62]=SQPW[5];3	 			# low power decoupling, F3, 15N
+P[63]=SHPW[12];2                        # 180 deg adiabatic decoupling, F2, 13C
+#
+#decoupling pulses
+#
+PCPD[1]=SQPW[0];1			# 90 deg pulse F1, 1H, dec.
+PCPD[2]=SQPW[0];2			# 90 deg pulse F2, 13C, dec.
+PCPD[3]=SQPW[0];3			# 90 deg pulse F3, 15N, dec.
+PCPD[4]=SQPW[0];4			# 90 deg pulse F4, 2H, dec.
+#
+PCPD[8]=SHPW[22];2			# Cbeta dec.
+#
+# power levels
+#
+#PlW[0];
+PLW[1]=PL90;1				# high power, F1, 1H
+PLW[2]=PL90;2				# high power, F2, 13C
+PLW[3]=PL90;3				# high power, F3, 15N
+PLW[4]=PL90;4				# high power, F4, 2H
+#
+PLW[9]=SQPL[3];1			# presat power, F1, 1H
+PLW[10]=SQPL[1];1			# TOCSY power, F1, 1H
+PLW[11]=SQPL[2];1			# ROESY power, F1, 1H
+PLW[12]=SQPL[0];2			# dec. power, F2, 13C
+PLW[13]=SHPL[22];2			# Cbeta dec
+PLW[14]=SQPL[5];2			# low power cpd, F2
+PLW[15]=SQPL[1];2			# TOCSY power, F2, 13C
+PLW[16]=SQPL[0];3			# dec. power, F3, 15N
+PLW[17]=SQPL[0];4			# dec. power, F4, 2H
+PLW[18]=PL90;1				# WATERGATE power, F1, 1H
+PLW[19]=SQPL[0];1			# dec. power, F1, 1H
+#
+PLW[23]=SQPL[16];3			# Rexchange power, F3, 15N
+PLW[24]=SQPL[14];2			# HD decoupling, F2
+PLW[25]=SQPL[15];3			# T1rho power, F3, 15N
+#
+PLW[27]=SQPL[10];1			# cleanex Spinlock
+PLW[28]=SHPL[20];2			# Ca or CO decoupling
+PLW[29]=SHPL[21];2			# sim Ca+CO decoupling
+PLW[30]=SQPL[0];2                       # dec. power, F2, 13C (=pl12)
+PLW[31]=SQPL[6];2                       # dec. power, F2, 13C, cw bilev
+PLW[32]=SQPL[12];1                      # presat power low, F1
+PLW[33]=SQPL[1];1                       # TOCSY power, STD SL filter, F1
+#
+PLW[36]=SQPL[6];3                       # dec. power, F2, 15N, cw bilev
+#
+# shapes
+#
+SH[1]=SH[5];1				# flip-back pulse, F1, 1H
+SH[2]=SH[6];2				# Cali sel.  90 deg, F2, 13C
+SH[3]=SH[8];2				# Cali sel. 180 deg, F2, 13C
+SH[4]=SH[6];2				# Cali sel.  90 deg, F2, 13C off
+SH[5]=SH[8];2				# Cali sel. 180 deg, F2, 13C off
+SH[6]=SH[4];1				# off-res presat, F1, 1H
+SPW[6]=SQPL[3];1                        # presat power, F1
+SH[7]=SH[8];2				# Cali sel.  180 deg, F2, 13C
+SH[8]=SH[7];2				# Cali sel.   90 deg, F2, 13C, tr
+SH[9]=SH[11];2				# Calpha sel.180 deg, F2, 13C
+SH[10]=SH[9];2				# Calpha sel. 90 deg, F2, 13C
+SH[11]=SH[6];1				# flip-back pulse, F1, H
+SH[12]=SH[10];2				# Calpha sel. 90 deg, F2, 13C, tr
+SH[13]=SH[4];2				# adiabatic 180 deg, F2, 13C
+SH[14]=SH[13];2				# adiab. bilev dec., F2, 13C
+SH[15]=SH[22];2				# Cbeta sel.dec. 180 deg, F2, 13C
+SH[16]=SH[11];2				# Calpha sel.180 deg, F2, 13C
+SH[17]=SH[11];2				# Calpha sel.180 deg, F2, 13C
+#
+SH[19]=SH[6];3				# T1rho, F3, 15N, adiabatic ramp down
+SH[20]=SH[7];3				# T1rho, F3, 15N, adiabatic ramp up
+SH[21]=SH[17];1				# cleanex 180 H2O
+SH[22]=SH[16];1				# cleanex 90 H2O
+SH[23]=SH[15];2				# Calpha med sel. 180 deg, F2, 13C
+SH[24]=SH[16];2				# Calpha high sel. 180 deg, F2, 13C
+SH[25]=SH[17];2				# Calpha high sel. 90 deg, F2, 13C
+SH[26]=SH[18];2				# Calpha high sel. 90 deg, F2, 13C, tr off res.
+SH[27]=SH[17];2				# Calpha high sel. 90 deg, F2, 13C
+SH[28]=SH[11];2				# Calpha sel. 180 deg, F2, 13C
+SH[29]=SH[16];2				# Calpha high sel. 180 deg, F2, 13C off res.
+SH[30]=SH[21];2                         # sim Ca+CO decoupling
+SH[31]=SH[12];2                         # adiab. dec., F2, 13C
+#
+#
+#global
+#
+DE=DE;1
+D[16]=D_grad;1                          #
+P[16]=P_grad1;1                         #
+P[17]=P_mlev;1                          #
+P[19]=P_grad2;1                         #
+P[20]=P_mlev;2                          #
+P[28]=P_hsqc;1                          #
+#

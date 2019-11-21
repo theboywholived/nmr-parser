@@ -1,6 +1,5 @@
 import os
 import platform
-from sys import stdout
 
 python_ver = platform.python_version()[0]
 
@@ -296,7 +295,8 @@ def get_pp():
     :return: original pulseprogram, absolute path to the original pulseprogram
     """
     _py_working_dir = os.popen('pwd').read().strip()
-    _nmr_wd = _py_working_dir[:_py_working_dir.find('/prog/curdir')] + '/exp/stan/nmr'
+    _nmr_wd = os.path.join(_py_working_dir[:_py_working_dir.find(
+        os.sep + "prog" + os.sep + "curdir")], "exp", "stan", "nmr")
     pp_orig = []
     _pp_filename = GETPAR('PULPROG')
     pp_wd = ""
@@ -352,18 +352,20 @@ def change_pp(pp_local, pp_directory):
         new_pp_filename = str(result[0]).strip()
         if new_pp_filename == pp_filename:
             value = SELECT(title="Filename Same",
-                           message="Do you want to overwrite the existing Pulse Program?\nThis option CANNOT be "
+                           message="Do you want to overwrite the existing Pulse Program?\nThis action CANNOT be "
                                    "reversed.",
                            buttons=["Yes", "No"]
                            )
             if value == 0:
                 write_file(pp_directory, new_pp_filename, pp_local)
+                MSG("New pulse program written at:\n" + pp_directory + new_pp_filename)
             elif value == 1:
                 change_pp(pp_local, pp_directory)
             elif value == 2 or value < 0:
                 EXIT()
         else:
             write_file(pp_directory, new_pp_filename, pp_local)
+            MSG("New pulse program written at:\n" + pp_directory + new_pp_filename)
             return new_pp_filename
 
 
@@ -376,7 +378,7 @@ result_axis = OrderedDict()
 result_nonaxis = OrderedDict()
 # pp_local: pulseprogram present in the modified file
 pp_local = []
-pp_modified_filename = "pp_modified.txt"
+pp_modified_filename = "MRpulseprogram"
 try:
     f = open(data_dir + os.sep + pp_modified_filename, 'r')
 
@@ -403,11 +405,15 @@ except IndexError:
         "Parameters not modified properly. Please run get_pp, make your changes again, and then run set_pp")
 
 # pp_global: pulseprogram used by the working dataset
-pp_global, pp_dir = get_pp()
+pp_global, pp_current_dir = get_pp()
+
+_py_working_dir = os.popen('pwd').read().strip()
+pp_future_directory = _nmr_wd = _py_working_dir[:_py_working_dir.find(
+    os.sep + "prog" + os.sep + "curdir")] + os.sep + "exp" + os.sep + "stan" + os.sep + "nmr" + os.sep + "lists" + os.sep + "pp" + os.sep + "user" + os.sep
 pp_filename = GETPAR("PULPROG")
 
 if pp_global != pp_local:
-    PULPROG_user = change_pp(pp_local, pp_dir)
+    PULPROG_user = change_pp(pp_local, pp_future_directory)
 
     # if pulseprogram name has changed, modify the same in Topspin
     if PULPROG_user is not None:
@@ -418,3 +424,5 @@ for key, value in result_axis.items():
     PUTPAR(key, value)
 for key, value in result_nonaxis.items():
     PUTPAR(key, value)
+
+MSG("Acquisition Parameters Set.")
