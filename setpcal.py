@@ -1,11 +1,8 @@
 # coding=utf-8
 import os
 import sys
-module_path = os.path.join(os.path.dirname(sys.argv[0]), 'parser.py')
 
-if module_path not in sys.path:
-    sys.path.append(module_path)
-from parser import Parser
+execfile(os.path.join(os.path.dirname(sys.argv[0]), 'parser.py'))
 
 pp_filename = str(GETPAR('PULPROG')).strip()
 config_filename = "parfile-dirs.prop"
@@ -17,10 +14,10 @@ py_working_dir = os.popen('pwd').read().strip()
 dd = CURDATA()
 # Calculating the data directory
 data_dir = dd[3] + os.sep + dd[0] + os.sep + dd[1]
-
+nmr_wd = os.path.join(py_working_dir[:py_working_dir.find(
+    os.sep + "prog" + os.sep + "curdir")], "exp", "stan", "nmr")
 prosol_path = os.path.join("lists", "prosol", "pulseassign")
 prosol_paths = [prosol_path]
-
 
 nuclear_status_list = {}
 for i in range(8):
@@ -32,20 +29,31 @@ p = Parser(py_working_dir, pp_filename)
 pp_paths = p.get_path_list("PP_DIRS", config_filename)
 d = {(pp_filename,): pp_paths}
 _, _, pulse_parameters, _, prosol_filenames, pp_map_pl = p.parse_pp_cpd(
-    d, pcal = True)
-prosol_map_p, prosol_map_pl = p.parse_prosol(prosol_filenames[0], prosol_path)
+    d, pcal=True)
+prosol_map_p, prosol_map_pl = p.parse_prosol(prosol_filenames[0], os.path.join(nmr_wd, prosol_path))
 
 map_p = {}
 map_pl = {}
+# MSG("Pulsepprog pl: " + str(pp_map_pl))
+# MSG("Pulseprog p: " + str(pulse_parameters['p']))
+# MSG("Prosol p: " + str(prosol_map_p))
+# MSG("Prosol pl: " + str(prosol_map_pl))
 
-for i in pp_map_pl:
-    if i in prosol_map_pl:
-        if pp_map_pl[i].union(prosol_map_pl[i]):
-            map_pl[i] = pp_map_pl[i].union(prosol_map_pl[i])
+for key in nuclear_status_list:
+    channel_num = nuclear_status_list[key]
 
-for i in prosol_map_p:
-    if prosol_map_p[i].union(pulse_parameters['p']):
-        map_p[p] = prosol_map_p[i].union(pulse_parameters['p'])
+    if channel_num in pp_map_pl and channel_num in prosol_map_pl:
+        if pp_map_pl[channel_num].intersection(prosol_map_pl[channel_num]):
+            map_pl[channel_num] = pp_map_pl[channel_num].intersection(prosol_map_pl[channel_num])
+            # MSG('PL' + str(channel_num) + " " + str(map_pl[channel_num]))
+
+    if channel_num in prosol_map_p:
+        if prosol_map_p[channel_num].intersection(pulse_parameters['p']):
+            map_p[channel_num] = prosol_map_p[channel_num].intersection(pulse_parameters['p'])
+            # MSG('P' + str(channel_num) + " " + str(map_p[channel_num]))
+
+# MSG(str(map_pl))
+# MSG(str(map_p))
 
 result_in_file = {}
 pcal_filename = "p_calib.txt"
@@ -64,8 +72,8 @@ try:
         except IndexError:
             raise Exception("Couldn't find the channel for the nucleus: " + nuc)
         result_in_file[channel] = []
-        result_in_file[channel].append(map_p[channel])
-        result_in_file[channel].append(map_pl[channel])
+        # result_in_file[channel].append(list(map_p[channel])[0])
+        # result_in_file[channel].append(list(map_pl[channel])[0])
         result_in_file[channel].append(nuc)
         result_in_file[channel].append(p)
         result_in_file[channel].append(plw)
@@ -78,16 +86,14 @@ max_channels_possible = 8
 labels = []
 default_values = []
 
-
-
 for i in range(1, max_channels_possible + 1):
     if i in result_in_file:
-        if len(result_in_file[i]) != 5:
+        if len(result_in_file[i]) != 3:
             raise IOError("Please check pcal values and formatting in: " + pcal_filename)
-        labels.append("P " + str(result_in_file[i][0]))
-        default_values.append(result_in_file[i][3])
-        labels.append("PLdB " + str(i) + result_in_file[i][1])
-        default_values.append(result_in_file[i][4])
+        labels.append("P " + str(list(map_p[i])[0]))
+        default_values.append(result_in_file[i][1])
+        labels.append("PLdB " + str(list(map_pl[i])[0]))
+        default_values.append(result_in_file[i][2])
 
 values_by_user = INPUT_DIALOG(title="Enter pulsecal values",
                               header="",
@@ -102,11 +108,10 @@ if values_by_user:
     for i in range(1, max_channels_possible + 1):
         if i in result_in_file:
             # MSG("P " + str(result_in_file[i][0]) + "   " + values_by_user[current])
-            PUTPAR("P " + str(result_in_file[i][0]), values_by_user[current])
+            PUTPAR("P " + str(list(map_p[i])[0]), values_by_user[current])
             current += 1
             # MSG("PLdB " + str(i) + "   " + values_by_user[current])
-            PUTPAR("PLdB " + str(i), values_by_user[current])
+            PUTPAR("PLdB " + str(list(map_pl[i])[0]), values_by_user[current])
             current += 1
 else:
     MSG("pcal values not set")
-

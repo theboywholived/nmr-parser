@@ -311,7 +311,7 @@ def get_pp():
             pp.close()
             break
     if len(pp_orig) == 0:
-        raise FileNotFoundError("Couldn't find the Pulse Program")
+        print (Warning("Couldn't find the Pulse Program"))
     return pp_orig, pp_wd
 
 
@@ -402,7 +402,8 @@ except IOError:
     raise IOError("Couldn't Find/Open the modified txt file")
 except IndexError:
     raise IndexError(
-        "Parameters not modified properly. Please run get_pp, make your changes again, and then run set_pp")
+        "Parameters not modified properly. Please run get_pp on for the previous snapshot, make your changes again, "
+        "and then run set_pp")
 
 # pp_global: pulseprogram used by the working dataset
 pp_global, pp_current_dir = get_pp()
@@ -413,6 +414,7 @@ pp_future_directory = _nmr_wd = _py_working_dir[:_py_working_dir.find(
 pp_filename = GETPAR("PULPROG")
 
 if pp_global != pp_local:
+    # MSG(str(pp_local))
     PULPROG_user = change_pp(pp_local, pp_future_directory)
 
     # if pulseprogram name has changed, modify the same in Topspin

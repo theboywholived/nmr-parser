@@ -82,10 +82,13 @@ class Parser(object):
                                         _raw_pulse_parameters[prefix] = _raw_pulse_parameters[prefix].union(
                                             [int(x) for x in re.findall(_prefixes[prefix], i)])
                                 if pcal:
-                                    tup = re.match(pattern_pl, i)
-                                    if (tup):
-                                        map_pl.setdefault(pattern_pl, set([]))
-                                        map_pl[int(tup[1])] = map_pl[int(tup[1])].union(int(tup[0]))
+                                    # MSG("YES")
+                                    l = re.findall(pattern_pl, i)
+                                    for tup in l:
+                                        pp_pl = int(tup[0])
+                                        pp_f = int(tup[1])
+                                        map_pl.setdefault(pp_f, set([]))
+                                        map_pl[pp_f] = map_pl[pp_f].union({pp_pl})
                                 # Get the names of the include and prosol files
                             except IndexError:
                                 raise Exception("Couldn't parse " + name)
@@ -112,7 +115,7 @@ class Parser(object):
         self.__remove_empty_elements(parsed_pulse_parameters)
 
         # MSG("parsed after" + str(parsed_pulse_parameters))
-
+        # MSG(str(map_pl))
         return pp_orig, pp_abs_path, parsed_pulse_parameters, include_filenames, prosol_filenames, map_pl
 
     def parse_prosol(self, name, path):

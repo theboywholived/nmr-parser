@@ -2,12 +2,11 @@
 import datetime
 import fnmatch
 import os
-import re
 import sys
 import warnings
 from zipfile import ZipFile
-from parser import Parser
 
+execfile(os.path.join(os.path.dirname(sys.argv[0]), 'parser.py'))
 
 pp_filename = str(GETPAR('PULPROG')).strip()
 config_filename = "parfile-dirs.prop"
@@ -286,54 +285,6 @@ class OrderedDict(dict):
         "od.viewitems() -> a set-like object providing a view on od's items"
         return ItemsView(self)
 
-#
-# def clean_regex(parameters_list):
-#     """
-#     Helper Function for Cleaning Regex Output
-#     :param parameters_list: raw parameters list
-#     :return:
-#     parameters_list: cleaned parameters list
-#     """
-#     #
-#     for i in range(len(parameters_list)):
-#         parameters_list[i] = re.sub('[\W_]+', '', parameters_list[i])
-#     # parameters_list = list(set(parameters_list))  # Remove Duplicates
-#     parameters_list.sort()
-#     return parameters_list
-#
-#
-
-#
-#
-# def clean_parameters_dict(raw_parameters_dict):
-#     parsed_parameters = {}
-#     remove_empty_elements(raw_parameters_dict)
-#     # Cleans the raw pulse parameter regex output to store in parsed_pulse_parameters
-#     for key, value in raw_parameters_dict.items():
-#         raw_parameters_dict[key] = clean_regex(value)
-#     for key, value in raw_parameters_dict.items():
-#         for j in value:
-#             parsed_parameters.setdefault(key, [])
-#             if get_trailing_numbers(j) is not None:
-#                 parsed_parameters[key].append(get_trailing_numbers(j))
-#         parsed_parameters[key].sort()
-#
-#     # Remove Empty Lists From Dictionary
-#     remove_empty_elements(parsed_parameters)
-#     for key in parsed_parameters:
-#         parsed_parameters[key] = list(set(parsed_parameters[key]))
-#     return parsed_parameters
-#
-#
-# def get_trailing_numbers(s):
-#     """
-#     Helper Function, gets the number from the end of the string
-#     :param s: input string, eg: "sp23"
-#     :return: outut string, eg: "23"
-#     """
-#     num = re.search(r'\d+$', s)
-#     return int(num.group()) if num else None
-
 
 def split_arraystring(s):
     """
@@ -353,9 +304,6 @@ def split_arraystring(s):
             _s += entry
 
     return ret
-
-
-
 
 
 def get_values_and_pulse_filenames(pulse_parameters):
@@ -632,8 +580,8 @@ def main():
 
     pp_original, pp_original_abs_path, pulse_parameters, include_filenames, prosol_filenames, _ = p.parse_pp_cpd(
         names_paths_dict)
-    p, pl = p.parse_prosol(prosol_filenames[0], prosol_path)
-    print(p, pl)
+    # p, pl = p.parse_prosol(prosol_filenames[0], prosol_path)
+    # print(p, pl)
     # MSG(str(pulse_parameters))
     result_nonaxis, result_axis, spnam_filenames, gpnam_filenames, cpd_filenames = get_values_and_pulse_filenames(
         pulse_parameters)
@@ -651,7 +599,7 @@ def main():
     pp_global_filename = pp_filename + pp_sep + dd[0] + pp_sep + dd[1] + pp_sep + ''.join(
         (str(datetime.date.today()).split('-')))
     pp_global_path = os.path.join(os.path.expanduser('~'), "pp_logs")
-    MSG(os.path.dirname(pp_global_path + os.sep))
+    # MSG(os.path.dirname(pp_global_path + os.sep))
     if not os.path.exists(os.path.dirname(pp_global_path + os.sep)):
         os.makedirs(os.path.dirname(pp_global_path + os.sep))
     write_to_file(pp_global_path, pp_global_filename, pp_original, result_nonaxis, result_axis)
