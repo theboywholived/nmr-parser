@@ -25,4 +25,6 @@
 #     return names
 #
 
-(PUTPAR("P 21", "2"))
+# (PUTPAR("P 21", "2"))
+MSG(GETPAR("PROBHD"))
+# PUTPAR("1 FnMODE", "QSEQ")

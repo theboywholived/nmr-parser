@@ -3,23 +3,28 @@ import re
 
 
 class Parser(object):
+    """
+    Helper class to parse files such as the pulseprogram, composite decoupling files and the prosol files
+    """
+
     def __init__(self, py_working_dir, pp_filename):
         self.py_working_dir = py_working_dir
         self.pp_filename = pp_filename
 
     @staticmethod
-    def __remove_empty_elements(dict):
-        for i in dict.copy():
-            if not dict.copy()[i]:
-                dict.pop(i)
+    def __remove_empty_elements(d):
+        for i in d.copy():
+            if not d.copy()[i]:
+                d.pop(i)
 
     def parse_pp_cpd(self, names_paths, pcal=False):
         """
         Parses the pulseprogram, cpdprg files to output the original pulseprog, relevant parameters and required filenames
+        :param pcal: Flag to check if pulsecalibration variables are needed, False by default
         :param names_paths: Dictionary of tuple of names of files as keys and list of possible paths as values
         :return:
         pp_orig: a list of all the lines in the original pulseprogram,
-        parsed_pulse_parameters: Dictionary containing the names and indices of the pulse parameters
+        pulse_parameters: Dictionary containing the names and indices of the pulse parameters
         include_filenames: Names of the filenames included in the pulseprogram
         prosol_filenames: Names of the filenames included in the pulseprogram
         """
@@ -41,10 +46,9 @@ class Parser(object):
 
         _working_dir = os.path.join(self.py_working_dir[:self.py_working_dir.find(os.sep + "prog" + os.sep + "curdir")],
                                     "exp", "stan", "nmr")
-        _raw_pulse_parameters = {}
+        pulse_parameters = {}
         # Raw Pulse Parameters, eg: {'cnst': ['cnst10', 'cnst4'], 'd': ['d26'], 'gp': ['gp1', 'gp2'], ...}
         # Parsed Pulse Parameters, eg: {'cnst': [4, 10], 'd': [26], 'gp': [1, 2], ...}
-        parsed_pulse_parameters = {}
         include_filenames = []
         prosol_filenames = []
         pp_orig = []  # Stores the original pulse program
@@ -52,7 +56,7 @@ class Parser(object):
         _declared_parameters = {}
         # Navigates in each path for the pulse program, finds the first one which contains pp_filename. Iterates line
         # by line, storing the original pulse program and matching the prefixes to find the pulse parameters in use.
-        # Stores the pulse parameters in _raw_pulse_parameters
+        # Stores the pulse parameters in pulse_parameters
         pp_abs_path = ""
         for names in names_paths:
             for name in names:
@@ -66,20 +70,26 @@ class Parser(object):
                                 pp_abs_path = _abs_path
                                 pp_orig += [i]
                             if i.startswith('\"'):
-                                i = i.split('=', 1)[0]
+                                left = i.split('=', 1)[0]
                                 for prefix in _prefixes:
-                                    if re.findall(_prefixes[prefix], i):
+                                    if re.findall(_prefixes[prefix], left):
                                         _declared_parameters.setdefault(prefix, set([]))
                                         _declared_parameters[prefix] = _declared_parameters[prefix].union(
-                                            [int(x) for x in re.findall(_prefixes[prefix], i)])
+                                            [int(x) for x in re.findall(_prefixes[prefix], left)])
+                                right = i.split('=', 1)[1]
+                                for prefix in _prefixes:
+                                    if re.findall(_prefixes[prefix], right):
+                                        pulse_parameters.setdefault(prefix, set([]))
+                                        pulse_parameters[prefix] = pulse_parameters[prefix].union(
+                                            [int(x) for x in re.findall(_prefixes[prefix], right)])
                                         # print(set(re.findall(_prefixes[prefix], i)))
                                 continue
                             try:
                                 i = i.split(';', 1)[0]  # Ignores comments
                                 for prefix in _prefixes:
                                     if re.findall(_prefixes[prefix], i):
-                                        _raw_pulse_parameters.setdefault(prefix, set([]))
-                                        _raw_pulse_parameters[prefix] = _raw_pulse_parameters[prefix].union(
+                                        pulse_parameters.setdefault(prefix, set([]))
+                                        pulse_parameters[prefix] = pulse_parameters[prefix].union(
                                             [int(x) for x in re.findall(_prefixes[prefix], i)])
                                 if pcal:
                                     # MSG("YES")
@@ -106,27 +116,27 @@ class Parser(object):
                         break
         if len(pp_orig) == 0:
             raise IOError("Couldn't find the Pulse Program")
-        parsed_pulse_parameters = _raw_pulse_parameters
         for key in _declared_parameters:
-            if key in parsed_pulse_parameters:
+            if key in pulse_parameters:
                 for i in _declared_parameters[key]:
-                    if i in parsed_pulse_parameters[key]:
-                        parsed_pulse_parameters[key].remove(i)
-        self.__remove_empty_elements(parsed_pulse_parameters)
+                    if i in pulse_parameters[key]:
+                        pulse_parameters[key].remove(i)
+        self.__remove_empty_elements(pulse_parameters)
 
         # MSG("parsed after" + str(parsed_pulse_parameters))
         # MSG(str(map_pl))
-        return pp_orig, pp_abs_path, parsed_pulse_parameters, include_filenames, prosol_filenames, map_pl
+        return pp_orig, pp_abs_path, pulse_parameters, include_filenames, prosol_filenames, map_pl
 
-    def parse_prosol(self, name, path):
+    def parse_prosol(self, name, dir):
         """
 
-        :param self:
-        :param name:
-        :param path:
+        :param name: Name of the prosol file
+        :param dir: directory of the prosol file
         :return:
+        channel_p: map of the channel to possible p indices
+        channel_pl: map of the channel to possible pl indices
         """
-        abs_path = os.path.join(path, name)
+        abs_path = os.path.join(dir, name)
         pattern_p = r"P\[(\d+)\]=PW90;(\d+)"
         pattern_pl = r"PLW\[(\d+)\]=PL90;(\d+)"
         channel_p = {}
@@ -152,7 +162,8 @@ class Parser(object):
     def get_path_list(self, pattern, config_filename):
         """
         Gets list of paths (in priority order) for pulse program and useful parameter files from the Bruker configuration
-        file,"parfile-dirs.prop" located in the Python working directory
+        file
+        :param config_filename: "parfile-dirs.prop" located in the Python working directory
         :param pattern: heading under which it is stored in the Bruker configuration file
         :return: list of paths for the pattern
         """
@@ -165,8 +176,8 @@ class Parser(object):
                     filepaths += i[(len(pattern) + 1):].strip().split(';')
             f.close()
 
-        except FileNotFoundError:
-            raise FileNotFoundError("Couldn't find parfile-dirs.prop in /topspin.../prog/curdir/go/")
+        except IOError:
+            raise IOError("Couldn't open: " + os.path.join(self.py_working_dir, config_filename))
         except IndexError:
-            raise IndexError("Couldn't parse paths from parfile-dirs.prop file. Please correct the file.")
+            raise IndexError("Couldn't parse paths from: " + config_filename + ". Please correct the file.")
         return filepaths

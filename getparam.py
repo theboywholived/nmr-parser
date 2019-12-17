@@ -2,24 +2,55 @@
 import datetime
 import fnmatch
 import os
+import shutil
 import sys
 import warnings
 from zipfile import ZipFile
 
-execfile(os.path.join(os.path.dirname(sys.argv[0]), 'parser.py'))
+# Execute the parser.py library for
+parser_file = open(os.path.join(os.path.dirname(sys.argv[0]), "parser.py"))
+exec (parser_file.read())
+parser_file.close()
+
+# The file with the pulseprogram on top annotated with parameters in the bottom is called a snapshot
+snapshot_local_foldername = "mr"  # Name of the folder in the data directory to contain the snapshot and zipfile
+snapshot_local_filename = "MRpulseprogram"
+zipfile_local_filename = "MRfiles.zip"
+log_global_foldername = "pp_logs"
+home_directory = os.path.expanduser('~')
+
+NONAXIS_PARAMETERS = ['AQ_mod', 'DS', 'NS', 'FW', 'RG', 'DSPFIRM', 'DIGMOD', 'DE', 'NBL', 'DQDMODE',
+                      'PH_ref', 'FnTYPE', 'TE']
+if GETPAR('NUSLIST') == 'automatic':
+    NONAXIS_PARAMETERS += ['NusPOINTS', 'NusJSP', 'NusT2']
+if GETPAR('PARMODE') == '0':
+    NONAXIS_PARAMETERS += ['TD0']
+AXIS_PARAMETERS = ['TD', 'SW', 'AQ', 'FnMODE']
+
+NUC_PARAMETERS = ['NUC', 'O', 'BF']
+SP_PARAMETERS = ['SPNAM', 'SPOAL', 'SPOFFS', 'SPW']
+GP_PARAMETERS = ['GPNAM', 'GPZ']
+CPD_PARAMETERS = ['CPDPRG']
+
+aq_mod_map = {'0': 'qf', '1': 'qsim', '2': 'qseq', '3': 'DQD', '4': 'parallelQsim', '5': 'parallelDQD'}
+dqdmode_map = {'0': 'add', '1': 'subtract'}
+fntype_map = {'0': 'traditional(planes)', '1': 'full(points)', '2': 'non-uniform_sampling',
+              '3': 'projection-spectroscopy'}
+fnmode_map = {'0': 'undefined', '1': 'QF', '2': 'QSEQ', '3': 'TPPI', '4': 'STATES', '5': 'States-TPPI',
+              '6': 'Echo-Antiecho'}
+dspfirm_map = {'0': 'sharp(standard)', '1': 'user_defined', '2': 'smooth', '3': 'medium', '4': 'rectangle'}
+digmod_map = {'0': 'analog', '1': 'digital', '2': 'baseopt'}
 
 pp_filename = str(GETPAR('PULPROG')).strip()
-config_filename = "parfile-dirs.prop"
+config_filename = "parfile-dirs.prop"  # File containing paths
 # Current working directory for python files in Bruker TopSpin
 # In topspin3.5pl7, it's '/opt/topspin3.5pl7/prog/curdir/go'
 # This path is later used to calculate other topspin paths
 py_working_dir = os.popen('pwd').read().strip()
 # Data directory, i.e, where the TopSpin working dataset is located, in topspin format
 dd = CURDATA()
-
 # Calculating the data directory
-data_dir = dd[3] + os.sep + dd[0] + os.sep + dd[1]
-
+data_dir = os.path.join(dd[3], dd[0], dd[1])
 try:
     FileNotFoundError
 except NameError:
@@ -308,7 +339,7 @@ def split_arraystring(s):
 
 def get_values_and_pulse_filenames(pulse_parameters):
     """
-
+    Uses TopSpin API to get the values of the parameters and names of the pulse files
     :param pulse_parameters: Dictionary of relevant parameters and their indices
     :return:
     result_nonaxis: Dictionary of non-axis parameters and their values
@@ -318,146 +349,142 @@ def get_values_and_pulse_filenames(pulse_parameters):
     cpdprg_names: List of Names of Decoupling files
     """
 
-    _NONAXIS_PARAMETERS = ['AQ_mod', 'DS', 'NS', 'FW', 'RG', 'DE', 'NBL', 'DQDMODE', 'PH_ref', 'FnTYPE']
-    _AXIS_PARAMETERS = ['TD', 'SW', 'AQ']
-
-    _NUC_PARAMETERS = ['NUC', 'O', 'BF']
-    _SP_PARAMETERS = ['SPNAM', 'SPOAL', 'SPOFFS', 'SPW']
-    _GP_PARAMETERS = ['GPNAM', 'GPZ']
-    _CPD_PARAMETERS = ['CPDPRG']
-
-    _aq_mod_map = {'0': 'qf', '1': 'qsim', '2': 'qseq', '3': 'DQD', '4': 'parallelQsim', '5': 'parallelDQD'}
-    _dqdmode_map = {'0': 'add', '1': 'subtract'}
-    _fntype_map = {'0': 'traditional(planes)', '1': 'full(points)', '2': 'non-uniform_sampling',
-                   '3': 'projection-spectroscopy'}
-
     # Ordered Dictionary: Maintains the order in which elements are inserted
     result_nonaxis = OrderedDict()  # Stores Result for Independent Parameters
     result_axis = OrderedDict()  # Stores Result for Axis Dependent Parameters
 
     # Get the Non-Axis Parameters directly
-    for i in _NONAXIS_PARAMETERS:
+    for i in NONAXIS_PARAMETERS:
         if i == 'AQ_mod':
-            result_nonaxis[i] = _aq_mod_map[GETPAR(i)]
+            result_nonaxis[i] = aq_mod_map[GETPAR(i)]
         elif i == 'DQDMODE':
-            result_nonaxis[i] = _dqdmode_map[GETPAR(i)]
+            result_nonaxis[i] = dqdmode_map[GETPAR(i)]
         elif i == 'FnTYPE':
-            result_nonaxis[i] = _fntype_map[GETPAR(i)]
+            result_nonaxis[i] = fntype_map[GETPAR(i)]
+        elif i == '1 FnMODE':
+            result_nonaxis[i] = fnmode_map[GETPAR(i)]
+        elif i == 'DSPFIRM':
+            result_nonaxis[i] = dspfirm_map[GETPAR(i)]
+        elif i == 'DIGMOD':
+            result_nonaxis[i] = digmod_map[GETPAR(i)]
         else:
             result_nonaxis[i] = GETPAR(i)
 
     # Getting each Nuclear Parameter after appending the index name of the parameter, eg:"SFO1"
     for i in range(8):
         if GETPAR("NUC" + str(i + 1)) != "off":
-            for j in _NUC_PARAMETERS:
+            for j in NUC_PARAMETERS:
                 if j == 'O':
-                    _each_param = j + str(i + 1) + 'P'
-                    result_nonaxis[_each_param] = GETPAR(_each_param)
+                    parameter = j + str(i + 1) + 'P'
+                    result_nonaxis[parameter] = GETPAR(parameter)
                 else:
-                    _each_param = j + str(i + 1)
-                    result_nonaxis[_each_param] = GETPAR(_each_param)
+                    parameter = j + str(i + 1)
+                    result_nonaxis[parameter] = GETPAR(parameter)
 
-    # Proper Names Of Shape Files, Gradient Files, CPD Programs
+    # Names Of Shape Files, Gradient Files, CPD Programs
     spnam_names = []
     gpnam_names = []
     cpdprg_names = []
 
-    # data_dir_filenames = []  # Names of shape files, gp files and cpd progs in the dataset dir
-
     # Shaped Pulse Parameters
     if 'sp' in pulse_parameters:
-        for i in _SP_PARAMETERS:
+        for i in SP_PARAMETERS:
             if i == 'SPNAM':
-                _spnam_arraystring = GETPAR('SPNAM')
-                _spnam_names_all = split_arraystring(_spnam_arraystring)
+                spnam_arraystring = GETPAR('SPNAM')
+                spnam_names_all = split_arraystring(spnam_arraystring)
+                # MSG(str(spnam_names_all))
                 for j in pulse_parameters['sp']:
                     # data_dir_filenames.append('spnam' + str(j))
-                    _each_param = str(i + " " + str(j))
-                    result_nonaxis[_each_param] = _spnam_names_all[j]
-                    spnam_names += [_spnam_names_all[j]]
+                    parameter = str(i + " " + str(j))
+                    result_nonaxis[parameter] = spnam_names_all[j]
+                    spnam_names += [spnam_names_all[j]]
             else:
                 for j in pulse_parameters['sp']:
-                    _each_param = str(i + " " + str(j))
-                    result_nonaxis[_each_param] = GETPAR(_each_param)
+                    parameter = str(i + " " + str(j))
+                    result_nonaxis[parameter] = GETPAR(parameter)
     # MSG(str(_spnam_names))
 
     # Gradient Pulse Parameters
     if 'gp' in pulse_parameters:
-        for i in _GP_PARAMETERS:
+        for i in GP_PARAMETERS:
             if i == 'GPNAM':
-                _gpnam_arraystring = GETPAR('GPNAM')
-                _gpnam_names_all = split_arraystring(_gpnam_arraystring)
+                gpnam_arraystring = GETPAR('GPNAM')
+                gpnam_names_all = split_arraystring(gpnam_arraystring)
                 for j in pulse_parameters['gp']:
                     # data_dir_filenames.append('gpnam' + str(j))
-                    _each_param = str(i + " " + str(j))
-                    result_nonaxis[_each_param] = _gpnam_names_all[j]
-                    gpnam_names += [_gpnam_names_all[j]]
+                    parameter = str(i + " " + str(j))
+                    result_nonaxis[parameter] = gpnam_names_all[j]
+                    gpnam_names += [gpnam_names_all[j]]
             else:
                 for j in pulse_parameters['gp']:
-                    _each_param = str(i + " " + str(j))
-                    result_nonaxis[_each_param] = GETPAR(_each_param)
+                    parameter = str(i + " " + str(j))
+                    result_nonaxis[parameter] = GETPAR(parameter)
 
     # CPD Programs
     if 'cpd' in pulse_parameters:
-        for i in _CPD_PARAMETERS:
+        for i in CPD_PARAMETERS:
             if i == 'CPDPRG':
                 cpdprg_arraystring = GETPAR('CPDPRG')
                 cpdprg_names_all = split_arraystring(cpdprg_arraystring)
                 for j in pulse_parameters['cpd']:
                     # data_dir_filenames.append('cpdprg' + str(j))
-                    _each_param = str(i + " " + str(j))
-                    result_nonaxis[_each_param] = cpdprg_names_all[j]
+                    parameter = str(i + " " + str(j))
+                    result_nonaxis[parameter] = cpdprg_names_all[j]
                     cpdprg_names += [cpdprg_names_all[j]]
             else:
                 for j in pulse_parameters['cpd']:
-                    _each_param = str(i + " " + str(j))
-                    result_nonaxis[_each_param] = GETPAR(_each_param)
+                    parameter = str(i + " " + str(j))
+                    result_nonaxis[parameter] = GETPAR(parameter)
 
     # Pulse Parameters
     if 'p' in pulse_parameters:
         for i in pulse_parameters['p']:
-            _each_param = 'P' + ' ' + str(i)
-            result_nonaxis[_each_param] = GETPAR(_each_param)
+            parameter = 'P' + ' ' + str(i)
+            result_nonaxis[parameter] = GETPAR(parameter)
     if 'pl' in pulse_parameters:
         for i in pulse_parameters['pl']:
-            _each_param = 'PLW' + ' ' + str(i)
-            result_nonaxis[_each_param] = GETPAR(_each_param)
+            parameter = 'PLW' + ' ' + str(i)
+            result_nonaxis[parameter] = GETPAR(parameter)
     # Delays
     if 'd' in pulse_parameters:
         for i in pulse_parameters['d']:
-            _each_param = 'D' + ' ' + str(i)
-            result_nonaxis[_each_param] = GETPAR(_each_param)
+            parameter = 'D' + ' ' + str(i)
+            result_nonaxis[parameter] = GETPAR(parameter)
     # Constants
     if 'cnst' in pulse_parameters:
         for i in pulse_parameters['cnst']:
-            _each_param = 'CNST' + ' ' + str(i)
-            result_nonaxis[_each_param] = GETPAR(_each_param)
+            parameter = 'CNST' + ' ' + str(i)
+            result_nonaxis[parameter] = GETPAR(parameter)
     # Loop Counters
     if 'l' in pulse_parameters:
         for i in pulse_parameters['l']:
-            _each_param = 'l' + ' ' + str(i)
-            result_nonaxis[_each_param] = GETPAR(_each_param)
+            parameter = 'l' + ' ' + str(i)
+            result_nonaxis[parameter] = GETPAR(parameter)
     # Pulse decoupling
     if 'pcpd' in pulse_parameters:
         for i in pulse_parameters['pcpd']:
-            _each_param = 'pcpd' + ' ' + str(i)
-            result_nonaxis[_each_param] = GETPAR(_each_param)
+            parameter = 'pcpd' + ' ' + str(i)
+            result_nonaxis[parameter] = GETPAR(parameter)
 
     # Axis Dependent Parameters
-    for i in _AXIS_PARAMETERS:
-        _dimension = GETACQUDIM()
-        for j in range(_dimension):
-            result_axis[str(j + 1) + " " + i] = (GETPAR(str(j + 1) + " " + i))
+    dimension = GETACQUDIM()
+    for i in AXIS_PARAMETERS:
+        for j in range(dimension):
+            result_axis[str(j + 1) + " " + i] = GETPAR(str(j + 1) + " " + i)
+    # FnMode is only for the indirect dimensions(highest dimension number is always direct)
+    for i in range(dimension - 1):
+        result_axis[str(i + 1) + " " + "FnMODE"] = GETPAR(str(i + 1) + " " + "FnMODE")
 
     return result_nonaxis, result_axis, spnam_names, gpnam_names, cpdprg_names
 
 
 def get_matching_filenames(pattern, path):
     """
-    Gets matching filenames from the path, using unix shell wildcards
+    Gets pattern-matching filenames from the path, using unix shell wildcards
     :param pattern: Unix shell-style wildcards for filenames
     :param path: Path for the files
-    :return: list of matching filenames
+    :return:
+    names: list of matching filenames
     """
     names = []
     for root, dirs, files in os.walk(path):
@@ -498,38 +525,38 @@ def write_to_file(path, name, pp_original, result_nonaxis, result_axis):
         raise Exception("Couldn't create" + abs_path)
 
 
-def add_files_to_zip(paths, filenames, zf, folder_name, files_taken_from, curr_dir=False):
+def add_files_to_zip(paths, filenames, zf, foldername, files_taken_from, in_data_dir=False):
     """
-    Using the list of paths, filenames and the zipfile object, zip up the files
+    Uses the list of paths, filenames and the zipfile object to zip up the files
     :param files_taken_from: Dictionary of Tuples(containing file name and path) of the zipped files
     :param paths: List of possible paths for each list
     :param filenames: List of filenames
     :param zf: The ZipFile Object
-    :param folder_name: Name of the folder name
-    :param curr_dir: Whether the filenames exist in the dataset directory or not, False by default
+    :param foldername: Name of the folder
+    :param in_data_dir: Whether the filenames exist in the dataset directory, False by default
     """
-    _nmr_wd = os.path.join(py_working_dir[:py_working_dir.find(
-        os.sep + "prog" + os.sep + "curdir")], "exp", "stan", "nmr")
-    # MSG(_nmr_wd)
-    for idx, each_name in enumerate(filenames):
-        if each_name != '':
+    nmr_wd = os.path.join(py_working_dir[:py_working_dir.find(os.path.join("/", "prog", "curdir"))], "exp", "stan",
+                          "nmr")
+    # MSG(nmr_wd)
+    for idx, filename in enumerate(filenames):
+        if filename != '':
             flag = False
             for fp in paths:
-                each_abs_path = ((_nmr_wd + os.sep) if not os.path.isabs(fp) else '') + fp + os.sep + each_name
+                each_abs_path = ((nmr_wd + os.sep) if not os.path.isabs(fp) else '') + fp + os.sep + filename
                 if os.path.exists(each_abs_path):
                     flag = True
-                    encoded_each_name = each_name.encode('ascii', 'replace')
-                    if curr_dir:
-                        path_to_write = os.path.join("data-dir-files", folder_name, encoded_each_name)
+                    encoded_filename = filename.encode('ascii', 'replace')
+                    if in_data_dir:
+                        path_to_write = os.path.join("data-dir-files", foldername, encoded_filename)
                     else:
-                        path_to_write = os.path.join(folder_name, encoded_each_name)
+                        path_to_write = os.path.join(foldername, encoded_filename)
                     if not (path_to_write in zf.namelist()):
-                        # files_created.append((encoded_each_name, path_to_write))
-                        files_taken_from.append((each_name, each_abs_path))
+                        # files_created.append((encoded_filename, path_to_write))
+                        files_taken_from.append((filename, each_abs_path))
                         zf.write(each_abs_path, path_to_write)
                     break
             if not flag:
-                warnings.warn("Couldn't find file:" + str(idx + 1) + " : " + each_name)
+                warnings.warn("Couldn't find file: " + str(idx + 1) + " : " + filename)
 
 
 def get_fqlist_filenames():
@@ -578,7 +605,7 @@ def main():
 
     # Get a copy of the orig pulseprogram, list of parameters, names of include and prosol files from the pulseprogram
 
-    pp_original, pp_original_abs_path, pulse_parameters, include_filenames, prosol_filenames, _ = p.parse_pp_cpd(
+    pulseprogram, pulseprogram_abs_path, pulse_parameters, include_filenames, prosol_filenames, _ = p.parse_pp_cpd(
         names_paths_dict)
     # p, pl = p.parse_prosol(prosol_filenames[0], prosol_path)
     # print(p, pl)
@@ -586,34 +613,34 @@ def main():
     result_nonaxis, result_axis, spnam_filenames, gpnam_filenames, cpd_filenames = get_values_and_pulse_filenames(
         pulse_parameters)
 
-    mr_path = os.path.join(data_dir, "mr")
-    if not os.path.exists(os.path.dirname(mr_path + os.sep)):
-        os.makedirs(os.path.dirname(mr_path + os.sep))
+    snapshot_folder_path = os.path.join(data_dir, snapshot_local_foldername)
+    if not os.path.exists(os.path.dirname(snapshot_folder_path + os.sep)):
+        os.makedirs(os.path.dirname(snapshot_folder_path + os.sep))
 
-    # Specify name of the txt file to store parameters and the original pulse program
-    pp_modified_filename = "MRpulseprogram"
-    pp_modified_path = mr_path
-    write_to_file(pp_modified_path, pp_modified_filename, pp_original, result_nonaxis, result_axis)
+    write_to_file(snapshot_folder_path, snapshot_local_filename, pulseprogram, result_nonaxis, result_axis)
 
-    pp_sep = '_'
-    pp_global_filename = pp_filename + pp_sep + dd[0] + pp_sep + dd[1] + pp_sep + ''.join(
-        (str(datetime.date.today()).split('-')))
-    pp_global_path = os.path.join(os.path.expanduser('~'), "pp_logs")
+    sep = '_'
+    snapshot_global_filename = pp_filename + sep + dd[0] + sep + dd[
+        1] + sep + ''.join((str(datetime.date.today()).split('-')))
+    snapshot_global_path = os.path.join(home_directory, log_global_foldername)
+
+    zipfile_global_filename = zipfile_local_filename.split('.')[0] + sep + dd[0] + sep + dd[
+        1] + sep + ''.join((str(datetime.date.today()).split('-'))) + ".zip"
+    zipfile_global_dir = os.path.join(home_directory, log_global_foldername)
     # MSG(os.path.dirname(pp_global_path + os.sep))
-    if not os.path.exists(os.path.dirname(pp_global_path + os.sep)):
-        os.makedirs(os.path.dirname(pp_global_path + os.sep))
-    write_to_file(pp_global_path, pp_global_filename, pp_original, result_nonaxis, result_axis)
+    if not os.path.exists(os.path.dirname(snapshot_global_path + os.sep)):
+        os.makedirs(os.path.dirname(snapshot_global_path + os.sep))
+    write_to_file(snapshot_global_path, snapshot_global_filename, pulseprogram, result_nonaxis, result_axis)
 
     # Specify name of the zip to contain the required files
-    zipfile_name = "MRfiles.zip"
-    zipfile_path = mr_path + os.sep + zipfile_name
+    zipfile_local_abs_path = os.path.join(snapshot_folder_path, zipfile_local_filename)
 
     # Delete the existing zip file(from a previous run) in the dataset directory, if present
-    if os.path.exists(zipfile_path):
-        os.remove(zipfile_path)
+    if os.path.exists(zipfile_local_abs_path):
+        os.remove(zipfile_local_abs_path)
 
     # Create a new zipped file
-    zf = ZipFile(zipfile_path, 'w')
+    zf = ZipFile(zipfile_local_abs_path, 'w')
     # Add a type of file to the zip, with each function call; also specify folder name
     add_files_to_zip(spnam_paths, spnam_filenames, zf, "spnam", files_taken_from)
     add_files_to_zip(pp_paths, include_filenames, zf, "include_files", files_taken_from)
@@ -627,22 +654,23 @@ def main():
     add_files_to_zip(vt_paths, [str(GETPAR("VTLIST").strip())], zf, "vtlist", files_taken_from)
     add_files_to_zip(fq_paths, fq_filenames, zf, "fqlists", files_taken_from)
 
-    add_files_to_zip([data_dir], spnam_data_dir_filenames, zf, "spnam", files_taken_from, curr_dir=True)
-    add_files_to_zip([data_dir], gpnam_data_dir_filenames, zf, "gpnam", files_taken_from, curr_dir=True)
-    add_files_to_zip([data_dir], cpd_data_dir_filenames, zf, "cpdprg", files_taken_from, curr_dir=True)
-    add_files_to_zip([data_dir], nus_data_dir_filenames, zf, "nus", files_taken_from, curr_dir=True)
+    add_files_to_zip([data_dir], spnam_data_dir_filenames, zf, "spnam", files_taken_from, in_data_dir=True)
+    add_files_to_zip([data_dir], gpnam_data_dir_filenames, zf, "gpnam", files_taken_from, in_data_dir=True)
+    add_files_to_zip([data_dir], cpd_data_dir_filenames, zf, "cpdprg", files_taken_from, in_data_dir=True)
+    add_files_to_zip([data_dir], nus_data_dir_filenames, zf, "nus", files_taken_from, in_data_dir=True)
 
     # Close the created zip file (IMPORTANT)
     zf.close()
 
+    shutil.copy2(zipfile_local_abs_path, os.path.join(zipfile_global_dir, zipfile_global_filename))
     output_topspin = ""
     newline = '\n'
     output_topspin += "Python script run from:" + newline
     output_topspin += sys.argv[0] + newline
     output_topspin += "Input: pulseprogram taken from:" + newline
-    output_topspin += pp_original_abs_path + newline
+    output_topspin += pulseprogram_abs_path + newline
     output_topspin += "Output: pulseprogram annotated with parameters:" + newline
-    output_topspin += pp_modified_path + os.sep + pp_modified_filename + newline
+    output_topspin += os.path.join(snapshot_folder_path, snapshot_local_filename) + newline
     output_topspin += newline
 
     output_topspin += "Files copied into zip directory:" + newline
@@ -650,7 +678,7 @@ def main():
         output_topspin += i[1] + newline
     output_topspin += newline
     output_topspin += "zipfile created:" + newline
-    output_topspin += zipfile_path
+    output_topspin += zipfile_local_abs_path
 
     MSG(title=os.path.basename(sys.argv[0]), message=output_topspin)
 
